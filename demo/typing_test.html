@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Typing Bot Demo</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f7f3ed;
+      --ink: #171717;
+      --muted: #66615b;
+      --line: #d9d0c4;
+      --accent: #1d7f6e;
+      --accent-strong: #0f5c50;
+      --bad: #bd3c35;
+      --panel: #fffefa;
+      --word: #ebe4d9;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(1080px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 42px 0;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 20px;
+      margin-bottom: 24px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(2rem, 5vw, 4.4rem);
+      line-height: 0.96;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 1rem;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(110px, 1fr));
+      gap: 10px;
+      min-width: min(420px, 100%);
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 8px;
+      padding: 14px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.6rem;
+      line-height: 1;
+    }
+
+    #word-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      min-height: 224px;
+      align-content: flex-start;
+      border-top: 1px solid var(--line);
+      border-bottom: 1px solid var(--line);
+      padding: 28px 0;
+      margin-bottom: 22px;
+    }
+
+    #word-list span {
+      display: inline-flex;
+      align-items: center;
+      min-height: 38px;
+      border-radius: 8px;
+      background: var(--word);
+      padding: 7px 12px;
+      font-size: clamp(1rem, 2vw, 1.25rem);
+      transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+    }
+
+    #word-list span.active {
+      background: var(--accent);
+      color: white;
+      transform: translateY(-2px);
+    }
+
+    #word-list span.correct {
+      background: #d9eee9;
+      color: var(--accent-strong);
+    }
+
+    #word-list span.wrong {
+      background: #f6d9d6;
+      color: var(--bad);
+    }
+
+    .input-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      align-items: center;
+    }
+
+    #inputfield {
+      width: 100%;
+      min-height: 54px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      color: var(--ink);
+      padding: 0 16px;
+      font-size: 1.2rem;
+      outline: none;
+    }
+
+    #inputfield:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(29, 127, 110, 0.18);
+    }
+
+    button {
+      min-height: 54px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--ink);
+      color: white;
+      padding: 0 18px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    @media (max-width: 760px) {
+      header,
+      .input-row {
+        display: block;
+      }
+
+      .stats {
+        grid-template-columns: repeat(3, 1fr);
+        margin-top: 18px;
+      }
+
+      button {
+        width: 100%;
+        margin-top: 10px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Typing Bot Demo</h1>
+        <p>Local page for Selenium and Playwright automation examples.</p>
+      </div>
+      <section class="stats" aria-label="typing stats">
+        <div class="metric"><span>Words</span><strong id="words">0</strong></div>
+        <div class="metric"><span>Accuracy</span><strong id="accuracy">100%</strong></div>
+        <div class="metric"><span>Status</span><strong id="status">Ready</strong></div>
+      </section>
+    </header>
+
+    <section id="word-list" aria-label="typing words"></section>
+
+    <div class="input-row">
+      <input id="inputfield" autocomplete="off" autofocus spellcheck="false" aria-label="typing input">
+      <button id="restart" type="button">Restart</button>
+    </div>
+  </main>
+
+  <script>
+    const words = [
+      "selenium", "driver", "selector", "input", "keyboard", "wait",
+      "automation", "browser", "element", "typing", "script", "classroom",
+      "example", "python", "chrome", "visible", "screenshot", "result",
+      "playwright", "lesson", "practice", "repeat", "focus", "testing",
+      "terminal", "project", "github", "useful", "learning", "demo",
+      "command", "window", "speed", "accuracy", "local", "safe"
+    ];
+
+    const list = document.querySelector("#word-list");
+    const input = document.querySelector("#inputfield");
+    const wordsNode = document.querySelector("#words");
+    const accuracyNode = document.querySelector("#accuracy");
+    const statusNode = document.querySelector("#status");
+    const restart = document.querySelector("#restart");
+
+    let index = 0;
+    let correct = 0;
+    let attempted = 0;
+
+    function renderWords() {
+      list.innerHTML = "";
+      words.forEach((word, wordIndex) => {
+        const span = document.createElement("span");
+        span.textContent = word;
+        span.setAttribute("wordnr", String(wordIndex));
+        if (wordIndex === index) span.classList.add("active");
+        list.appendChild(span);
+      });
+    }
+
+    function updateStats() {
+      wordsNode.textContent = String(attempted);
+      const accuracy = attempted === 0 ? 100 : Math.round((correct / attempted) * 100);
+      accuracyNode.textContent = `${accuracy}%`;
+      statusNode.textContent = index >= words.length ? "Done" : "Typing";
+    }
+
+    function submitWord(value) {
+      const current = list.querySelector(`[wordnr="${index}"]`);
+      if (!current) return;
+
+      attempted += 1;
+      current.classList.remove("active");
+      if (value === current.textContent) {
+        correct += 1;
+        current.classList.add("correct");
+      } else {
+        current.classList.add("wrong");
+      }
+
+      index += 1;
+      const next = list.querySelector(`[wordnr="${index}"]`);
+      if (next) next.classList.add("active");
+      updateStats();
+    }
+
+    input.addEventListener("input", () => {
+      if (input.value.endsWith(" ")) {
+        submitWord(input.value.trim());
+        input.value = "";
+      }
+    });
+
+    restart.addEventListener("click", () => {
+      index = 0;
+      correct = 0;
+      attempted = 0;
+      input.value = "";
+      renderWords();
+      updateStats();
+      input.focus();
+      statusNode.textContent = "Ready";
+    });
+
+    renderWords();
+    updateStats();
+    statusNode.textContent = "Ready";
+  </script>
+</body>
+</html>

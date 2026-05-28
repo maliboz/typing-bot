@@ -1,0 +1,19 @@
+name: Feature request
+description: Suggest an improvement for Typing Coach.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to see?
+      description: Tell us the workflow this would improve.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Share any simpler version of the idea that would still help.
+    validations:
+      required: false

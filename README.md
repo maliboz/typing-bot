@@ -1,114 +1,149 @@
-## 10fastfingers Typing Bot (Turkish)
+# 10FastFingers Typing Bot
 
-This repository contains two automated typing bot implementations for the Turkish typing test on https://10fastfingers.com/typing-test/turkish.
+10FastFingers icin Selenium ve Playwright tabanli hizli typing bot ornegi.
 
-The bots are designed to type continuously for 60 seconds at maximum speed and capture a screenshot of the final test results. Two different browser automation frameworks are used: Playwright and Selenium.
+Bu projenin amaci sahte bir "typing coach" yapmak degil; gercek bir web
+otomasyonu ornegi uzerinden, selector takibi, browser automation, hiz
+optimizasyonu ve Selenium/Playwright farkini gostermektir.
 
----
+Eski 10FastFingers arayuzunde site `#inputfield` ve `span[wordnr]` kullaniyordu.
+Yeni arayuzde ayri input yok; aktif kelime `.word-box-active-word` sinifindan
+okunuyor ve tuslar dogrudan sayfaya gonderiliyor. Kod iki yapinin ikisini de
+destekler.
 
-## Repository Structure
+## Verified 60-Second Results
 
-playwright_bot.py   High-speed typing bot implemented with Playwright  
-selenium_bot.py     High-speed typing bot implemented with Selenium (headless Chrome)  
-README.md           Project documentation
+These runs were executed against the real Turkish 10FastFingers test page on
+2026-05-28.
 
----
+| Engine | Command profile | Site result | Accuracy | Screenshot |
+| --- | --- | ---: | ---: | --- |
+| Selenium | `--strategy turbo --max-words 10000 --duration 60` | 400 dks | 100% | [view](docs/assets/selenium-turbo-400wpm-100acc.png) |
+| Playwright stable | `--strategy active --delay 0.005 --duration 60` | 362 wpm | 100% | [view](docs/assets/playwright-stable-362wpm-100acc.png) |
+| Playwright aggressive | `--strategy turbo --duration 60` | 353 wpm | 95% | [view](docs/assets/playwright-aggressive-353wpm-95acc.png) |
 
-## Requirements
+![Selenium 400 dks 100% result](docs/assets/selenium-turbo-400wpm-100acc.png)
 
-### Common Requirements
-- Python 3.x
+Full benchmark notes are in [BENCHMARKS.md](BENCHMARKS.md).
 
-### Playwright Bot
-- playwright
-- Playwright-supported browsers
-
-### Selenium Bot
-- selenium
-- Google Chrome
-- ChromeDriver available in system PATH
-
----
-
-## Installation
-
-### Playwright Installation
-pip install playwright  
-playwright install
-
-### Selenium Installation
-pip install selenium
-
-Download the ChromeDriver version compatible with your Chrome browser and ensure it is added to your system PATH.
-
----
-
-## Usage
-
-### Running the Playwright Bot
-python playwright_bot.py
-
-### Running the Selenium Bot
-python selenium_bot.py
-
-Both scripts perform the following steps:
-- Navigate to the Turkish typing test page
-- Type words automatically for 60 seconds
-- Wait 10 seconds after the test finishes
-- Save a screenshot of the final results as final_result.png
-
----
-
-## Configuration
-
-### Typing Speed Adjustment
-
-Typing speed can be customized to balance speed and accuracy.
-
-Playwright:
-page.keyboard.type(word, delay=0)
+## En Hizli Kullanim
 
 Selenium:
-Adjust the delay variable in the script.
 
----
+```bash
+python -m pip install selenium
+python selenium_bot.py --headless --strategy turbo --max-words 400 --duration 60 --settle 10
+```
 
-### Test Duration
+Gorunur tarayici ile izlemek icin:
 
-To change the typing duration, modify the following condition in either script:
-while time.time() - start_time < 60
-
-Replace 60 with the desired duration in seconds.
-
----
-
-### Headless Mode
-
-Both bots run in headless mode by default for maximum performance.
+```bash
+python selenium_bot.py --headful --strategy turbo --max-words 400 --duration 60
+```
 
 Playwright:
-Set headless=False when launching the browser.
 
-Selenium:
-Remove the --headless option from Chrome settings.
+```bash
+python -m pip install playwright
+playwright install chromium
+python playwright_bot.py --headless --strategy active --delay 0.005 --max-words 10000 --duration 60 --settle 12
+```
 
----
+## Stratejiler
 
-## Contributing
+- `--strategy turbo`: en hizli calisan mod. Yeni sitede aktif kelimeyi okuyup
+  sifir beklemeyle basar. Eski input tabanli sitede kelime listesini bulk
+  gonderebilir.
+- `--strategy active`: derste gostermek ve debug yapmak icin daha okunur mod.
+  Kelime kelime gider, `--delay` ile yavaslatilabilir.
 
-Contributions are welcome.  
-Bug reports, feature suggestions, and pull requests are encouraged.
+Playwright icin en iyi dogruluk/hiz dengesi su ana kadar:
 
----
+```bash
+python playwright_bot.py --headless --strategy active --delay 0.005 --duration 60 --settle 12
+```
+
+Ornek:
+
+```bash
+python selenium_bot.py --headful --strategy active --delay 0.03
+```
+
+## Parametreler
+
+```bash
+python selenium_bot.py --strategy turbo --max-words 400 --duration 60 --screenshot final_result.png
+```
+
+- `--headful`: gorunur tarayici penceresi acar
+- `--headless`: arka planda calistirir
+- `--strategy turbo`: hiz odakli mod
+- `--strategy active`: kelime kelime takip modu
+- `--max-words 400`: yazilacak maksimum kelime sayisi
+- `--duration 60`: maksimum calisma suresi
+- `--delay 0.02`: sadece `active` modda kelimeler arasi bekleme
+- `--settle 10`: ekran goruntusunden once bekleme suresi
+- `--screenshot final_result.png`: sonuc ekran goruntusu
+- `--target 10fastfingers-tr`: varsayilan gercek site hedefi
+- `--target demo`: internetsiz yerel demo sayfasi
+
+## Neden Iki Bot Var?
+
+Selenium, derslerde anlatmasi kolay olan klasik WebDriver ornegidir.
+
+Playwright ise hiz denemeleri icin daha uygundur; browser ile daha dusuk
+overhead'li bir automation protokolu uzerinden konusur ve klavye eventlerini
+cok daha seri gonderebilir. Bu yuzden proje ikisini de icerir.
+
+## Guncel Site Desteği
+
+Kod once eski arayuzu kontrol eder:
+
+```text
+#inputfield
+span[wordnr="0"]
+span[wordnr="1"]
+```
+
+Bulamazsa yeni arayuze gecer:
+
+```text
+.word-box-active-word
+div[class*="word-box"]
+```
+
+Bu sayede eski kodun kirildigi ana problem, yani 10FastFingers'in DOM yapisini
+degistirmesi, giderilmis olur.
+
+## Yerel Demo
+
+Internet yoksa veya derste kontrollu gosterim yapmak istersen:
+
+```bash
+python selenium_bot.py --headful --target demo
+```
+
+Ana hedef yine gercek 10FastFingers sitesidir; demo sadece fallback icindir.
+
+## Test
+
+```bash
+$env:PYTHONPATH="src"
+python -m unittest discover -s tests
+```
+
+macOS/Linux:
+
+```bash
+PYTHONPATH=src python -m unittest discover -s tests
+```
+
+## Not
+
+Bu proje Selenium ve Playwright otomasyon mantigini ogretmek icin hazirlanmistir.
+Ucuncu taraf sitelerde kullanirken ilgili sitenin kurallarina ve aldigin
+izinlere uygun hareket et.
 
 ## License
 
-This project is licensed under the MIT License.  
-See the LICENSE file for more information.
-
----
-
-## Disclaimer
-
-This project is intended for educational and experimental purposes only.  
-Ensure that your usage complies with the target website’s terms of service.
+MIT. See [LICENSE](LICENSE).
