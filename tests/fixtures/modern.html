@@ -1,0 +1,60 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Native keyboard regression fixture</title>
+<div data-testid="WordBox-root" tabindex="0">
+  <div data-testid="word-box-words"></div>
+  <textarea data-testid="Typing-box-input"></textarea>
+</div>
+<output id="status"></output>
+<script>
+const params = new URLSearchParams(location.search);
+const root = document.querySelector('[data-testid="WordBox-root"]');
+const box = document.querySelector('[data-testid="word-box-words"]');
+const input = document.querySelector('textarea');
+const delay = Number(params.get('delay') || 0);
+const old = params.has('old');
+const words = Array.from({length: Number(params.get('count') || 120)}, (_, i) =>
+  ['aynı', 'aynı', 'çığ', 'görüş', 'İstanbul', 'şüphe', 'ÖĞÜT', 'test'][i % 8]);
+window.stats = {correct: 0, attempted: 0, untrusted: 0, keys: [], values: []};
+let index = 0, value = '', pending = false;
+function render() {
+  box.replaceChildren();
+  // Recycle rendered rows every eight words, as the live site does.
+  words.slice(Math.floor(index / 8) * 8, Math.floor(index / 8) * 8 + 24).forEach((word, j) => {
+    const position = Math.floor(index / 8) * 8 + j;
+    const active = position === index;
+    const pieces = active ? [word[0], word.slice(1), ' '] : [word, ' '];
+    pieces.forEach(piece => {
+      const span = document.createElement('span');
+      span.textContent = piece;
+      if (active) span.className = old ? 'word-box-active-word' : 'wb-rotating123-aw';
+      box.append(span);
+    });
+  });
+  if (index >= words.length) {
+    root.dataset.finished = 'true';
+    document.querySelector('#status').textContent = 'Done';
+  }
+}
+input.addEventListener('keydown', event => {
+  if (!event.isTrusted) stats.untrusted++;
+  if (event.key.length !== 1) return;
+  event.preventDefault();
+  stats.keys.push(event.key);
+  if (pending || index >= words.length) return;
+  if (event.key !== ' ') { value += event.key; return; }
+  const submitted = value;
+  value = '';
+  pending = true;
+  const advance = () => {
+    stats.attempted++;
+    stats.values.push(submitted);
+    if (submitted === words[index]) stats.correct++;
+    index++;
+    pending = false;
+    render();
+  };
+  if (delay) setTimeout(advance, delay); else advance();
+});
+if (params.has('hydrate')) setTimeout(render, 100); else render();
+</script>

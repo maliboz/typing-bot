@@ -1,149 +1,128 @@
 # 10FastFingers Typing Bot
 
-10FastFingers icin Selenium ve Playwright tabanli hizli typing bot ornegi.
+Selenium ve Playwright ile yerel klavye olayları gönderen eğitim projesi.
+Türkçe karakterleri, eski input arayüzünü ve güncel parçalı kelime arayüzünü destekler.
 
-Bu projenin amaci sahte bir "typing coach" yapmak degil; gercek bir web
-otomasyonu ornegi uzerinden, selector takibi, browser automation, hiz
-optimizasyonu ve Selenium/Playwright farkini gostermektir.
+## Kurulum
 
-Eski 10FastFingers arayuzunde site `#inputfield` ve `span[wordnr]` kullaniyordu.
-Yeni arayuzde ayri input yok; aktif kelime `.word-box-active-word` sinifindan
-okunuyor ve tuslar dogrudan sayfaya gonderiliyor. Kod iki yapinin ikisini de
-destekler.
-
-## Verified 60-Second Results
-
-These runs were executed against the real Turkish 10FastFingers test page on
-2026-05-28.
-
-| Engine | Command profile | Site result | Accuracy | Screenshot |
-| --- | --- | ---: | ---: | --- |
-| Selenium | `--strategy turbo --max-words 10000 --duration 60` | 400 dks | 100% | [view](docs/assets/selenium-turbo-400wpm-100acc.png) |
-| Playwright stable | `--strategy active --delay 0.005 --duration 60` | 362 wpm | 100% | [view](docs/assets/playwright-stable-362wpm-100acc.png) |
-| Playwright aggressive | `--strategy turbo --duration 60` | 353 wpm | 95% | [view](docs/assets/playwright-aggressive-353wpm-95acc.png) |
-
-![Selenium 400 dks 100% result](docs/assets/selenium-turbo-400wpm-100acc.png)
-
-Full benchmark notes are in [BENCHMARKS.md](BENCHMARKS.md).
-
-## En Hizli Kullanim
-
-Selenium:
+Python 3.9+ ve Chrome/Chromium gerekir. Depo dizininde:
 
 ```bash
-python -m pip install selenium
-python selenium_bot.py --headless --strategy turbo --max-words 400 --duration 60 --settle 10
+python -m venv .venv
+# Windows PowerShell: .\.venv\Scripts\Activate.ps1
+# Linux/macOS: source .venv/bin/activate
+python -m pip install -e ".[all]"
+python -m playwright install chromium
 ```
 
-Gorunur tarayici ile izlemek icin:
+Selenium kurulu Chrome'u Selenium Manager ile bulur. Playwright varsayılan olarak
+kendi Chromium'unu kullanır. İkisine de `--browser-path` vererek aynı Chrome
+sürümünü seçebilirsin.
+
+## Kullanım
+
+Sitenin sunduğu metni beklemesiz yazmak:
 
 ```bash
-python selenium_bot.py --headful --strategy turbo --max-words 400 --duration 60
+python playwright_bot.py --headless --strategy turbo --settle 0
+python selenium_bot.py --headless --strategy turbo --settle 0
 ```
 
-Playwright:
+Güncel standart test **2.000 karaktere kadar metin** hazırlıyor. Bot bu metni
+birkaç saniyede bitirebilir; bu, 60 saniyelik sonuç ekranının hazır olduğu anlamına
+gelmez. Uzun süre giriş olmazsa sitenin AFK kontrolü testi sıfırlayabilir.
+60 saniyeye yayılmış bir çalışma ve sonuç ekranı için:
 
 ```bash
-python -m pip install playwright
-playwright install chromium
-python playwright_bot.py --headless --strategy active --delay 0.005 --max-words 10000 --duration 60 --settle 12
+python playwright_bot.py --headless --strategy turbo --wpm 400 --duration 60 --settle 3
+python selenium_bot.py --headless --strategy turbo --wpm 400 --duration 60 --settle 3
 ```
 
-## Stratejiler
+`--wpm`, boşluklar dahil beş karakteri bir kelime kabul eden gönderim temposudur;
+sitenin hesaplayacağı puanı garanti etmez. `0` (varsayılan) sınırsız hızdır.
+Tarayıcıyı görmek için `--headless` yerine `--headful` kullan.
 
-- `--strategy turbo`: en hizli calisan mod. Yeni sitede aktif kelimeyi okuyup
-  sifir beklemeyle basar. Eski input tabanli sitede kelime listesini bulk
-  gonderebilir.
-- `--strategy active`: derste gostermek ve debug yapmak icin daha okunur mod.
-  Kelime kelime gider, `--delay` ile yavaslatilabilir.
-
-Playwright icin en iyi dogruluk/hiz dengesi su ana kadar:
+Yerel demo ve normal motor klavye API'si:
 
 ```bash
-python playwright_bot.py --headless --strategy active --delay 0.005 --duration 60 --settle 12
+python playwright_bot.py --target demo --headful
+python selenium_bot.py --target demo --strategy active --delay 0
 ```
 
-Ornek:
+## Sorun neydi?
+
+- Güncel site `.word-box-active-word` yerine değişken `wb-…-aw` sınıfları ve
+  `data-testid="word-box-words"` kullanıyor. Eski kod aktif kelimeyi bulamayınca
+  kutunun ilk kelimesine dönüyordu; metin bitince de aynı hatayı yapıyordu.
+- Sayaç, kabul edilen kelime yerine gönderme denemelerini sayıyordu. Binlerce
+  deneme, binlerce doğru kelime veya WPM anlamına gelmiyordu.
+- Playwright `active` modunda her kelimede tekrar tıklıyor; iki motor farklı
+  gecikmeler, işlemler ve tarayıcılarla karşılaştırılıyordu.
+- `keyboard.type()` US klavye eşlemesinde olmayan karakterler için yalnızca input
+  olayı gönderir. Türkçe karakterlerde keydown bilgisi bekleyen sayfalarla bu
+  farklılık önemlidir. `insert_text()` de tek başına çözüm değildir.
+- WebSocket kullanılması tek başına daha yüksek hız sağlamaz. Mesaj sayısı,
+  olayların içeriği ve sayfanın güncellenme hızı belirleyicidir.
+
+Yeni `turbo`, **iki motorda da aynı doğrudan CDP WebSocket hattını** kullanır.
+Bir kelimenin native keyDown/keyUp olaylarını sırayla yollar, bütün protokol
+cevaplarını kontrol eder ve sonraki kelimeye geçmeden DOM ilerlemesini doğrular.
+DOM okumak için JavaScript kullanır; metni DOM'a yazarak veya sayfanın skor/sayaç
+verilerini değiştirerek sonuç üretmez. Hazır olmayan sayfayı bekler, ilerlemeyen
+kelimeyi tekrar tekrar göndermez ve odağı başta bir kez alır.
+
+`active`, motorların normal klavye yolunu korur. Playwright'ta Türkçe harflerin
+native tuş olayları CDP ile tamamlanır. Karşılaştırırken `--delay 0` kullan.
+
+## Sonuç ve seçenekler
 
 ```bash
-python selenium_bot.py --headful --strategy active --delay 0.03
+python playwright_bot.py --headless --max-words 100 --settle 0 --json --screenshot outputs/result.png
 ```
 
-## Parametreler
+- `--duration 60`: yazma döngüsünün süre sınırı; kurulum ve screenshot beklemesi hariç.
+- `--max-words 10000`: kelime sınırı. Süre/limit kelime sınırlarında kontrol edilir;
+  gönderilmekte olan en fazla bir kelime süreyi aşabilir.
+- `--delay 0.02`: yalnızca `active` modda kelimeler arası ek bekleme.
+- `--wpm 0`: opsiyonel karakter temelli tempo; `turbo` dahil iki modda çalışır.
+- `--settle 3`: yazma sonrasında ekran görüntüsünden önce bekleme.
+- `--browser-path PATH`: karşılaştırma için aynı Chrome çalıştırılabilir dosyası.
+- `--target demo`: yerel demo; URL veya HTML dosya yolu da kabul edilir.
+- `--json`: otomatik karşılaştırmalar için makinece okunabilir sonuç.
+
+`Confirmed words` / JSON `typed_words`, gözlenen kelime ilerlemeleridir.
+`Attempted words` gönderim sayısıdır. İkisi de sitenin doğru kelime sayısı veya
+resmî WPM puanı yerine geçmez. `words_exhausted` sunulan metnin bittiğini,
+`completed` demodaki gibi açık bir bitiş sinyalini belirtir. `stalled`,
+`input_error` ve `unsupported_page` durumlarında süreç hata koduyla çıkar.
+Sitenin DOM yapısı değişirse adapter güncellenmelidir; ilk kelimeye sessizce dönmez.
+
+## Doğrulama
+
+Ölçümler ve sınırlamalar: [BENCHMARKS.md](BENCHMARKS.md).
 
 ```bash
-python selenium_bot.py --strategy turbo --max-words 400 --duration 60 --screenshot final_result.png
+python -m unittest discover -s tests -v
+python scripts/benchmark.py --browser-path "PATH/TO/chrome" --repeats 3
 ```
 
-- `--headful`: gorunur tarayici penceresi acar
-- `--headless`: arka planda calistirir
-- `--strategy turbo`: hiz odakli mod
-- `--strategy active`: kelime kelime takip modu
-- `--max-words 400`: yazilacak maksimum kelime sayisi
-- `--duration 60`: maksimum calisma suresi
-- `--delay 0.02`: sadece `active` modda kelimeler arasi bekleme
-- `--settle 10`: ekran goruntusunden once bekleme suresi
-- `--screenshot final_result.png`: sonuc ekran goruntusu
-- `--target 10fastfingers-tr`: varsayilan gercek site hedefi
-- `--target demo`: internetsiz yerel demo sayfasi
+Tarayıcı entegrasyon testleri (PowerShell):
 
-## Neden Iki Bot Var?
-
-Selenium, derslerde anlatmasi kolay olan klasik WebDriver ornegidir.
-
-Playwright ise hiz denemeleri icin daha uygundur; browser ile daha dusuk
-overhead'li bir automation protokolu uzerinden konusur ve klavye eventlerini
-cok daha seri gonderebilir. Bu yuzden proje ikisini de icerir.
-
-## Guncel Site Desteği
-
-Kod once eski arayuzu kontrol eder:
-
-```text
-#inputfield
-span[wordnr="0"]
-span[wordnr="1"]
+```powershell
+$env:TYPING_BOT_BROWSER_TESTS = "1"
+# İsteğe bağlı: $env:TYPING_BOT_BROWSER = "C:\path\to\chrome.exe"
+python -m unittest discover -s tests -v
 ```
 
-Bulamazsa yeni arayuze gecer:
+Linux/macOS: `TYPING_BOT_BROWSER_TESTS=1 python -m unittest discover -s tests -v`.
+Testler Türkçe harfleri, tekrar eden kelimeleri, satır geri dönüşümünü, gecikmiş
+render işlemlerini, metnin tükenmesini ve native olayları doğrular.
 
-```text
-.word-box-active-word
-div[class*="word-box"]
-```
+## Kaynaklar
 
-Bu sayede eski kodun kirildigi ana problem, yani 10FastFingers'in DOM yapisini
-degistirmesi, giderilmis olur.
+- [Playwright Keyboard](https://playwright.dev/python/docs/api/class-keyboard)
+- [Chrome DevTools Input](https://chromedevtools.github.io/devtools-protocol/tot/Input/)
+- [Selenium Actions](https://www.selenium.dev/documentation/webdriver/actions_api/)
+- [Güncel Türkçe test](https://10fastfingers.com/typing-test/turkish)
 
-## Yerel Demo
-
-Internet yoksa veya derste kontrollu gosterim yapmak istersen:
-
-```bash
-python selenium_bot.py --headful --target demo
-```
-
-Ana hedef yine gercek 10FastFingers sitesidir; demo sadece fallback icindir.
-
-## Test
-
-```bash
-$env:PYTHONPATH="src"
-python -m unittest discover -s tests
-```
-
-macOS/Linux:
-
-```bash
-PYTHONPATH=src python -m unittest discover -s tests
-```
-
-## Not
-
-Bu proje Selenium ve Playwright otomasyon mantigini ogretmek icin hazirlanmistir.
-Ucuncu taraf sitelerde kullanirken ilgili sitenin kurallarina ve aldigin
-izinlere uygun hareket et.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+Eğitim ve izinli otomasyon çalışmaları içindir. MIT lisansı: [LICENSE](LICENSE).

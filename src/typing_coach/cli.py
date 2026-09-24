@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
+import json
 from pathlib import Path
 import sys
 from typing import Sequence
@@ -32,6 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_automation_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument(
         "--target",
         default="10fastfingers-tr",
@@ -67,7 +70,7 @@ def add_automation_arguments(parser: argparse.ArgumentParser) -> None:
         "--strategy",
         choices=["turbo", "active"],
         default="turbo",
-        help="turbo uses the fastest safe path; active types word by word with delay",
+        help="turbo pipelines native keys over CDP; active uses the engine's keyboard API",
     )
     parser.add_argument(
         "--max-words",
@@ -81,6 +84,13 @@ def add_automation_arguments(parser: argparse.ArgumentParser) -> None:
         default=DEFAULT_SCREENSHOT,
         help="where to save the final screenshot",
     )
+    parser.add_argument(
+        "--browser-path", type=Path,
+        help="Chrome executable; use the same binary for fair engine comparisons",
+    )
+    parser.add_argument("--json", action="store_true", help="print machine-readable results")
+    parser.add_argument("--wpm", type=float, default=0,
+                        help="optional pace in 5-character words/minute; 0 is unlimited (default)")
     parser.add_argument(
         "--settle",
         type=float,
@@ -118,13 +128,14 @@ def run_selenium_command(args: argparse.Namespace) -> int:
             strategy=args.strategy,
             screenshot_path=args.screenshot,
             settle_seconds=args.settle,
+            browser_path=args.browser_path,
+            wpm=args.wpm,
         )
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
 
-    print(format_automation_result(result))
-    return 0
+    return print_result(result, args.json)
 
 
 def run_playwright_command(args: argparse.Namespace) -> int:
@@ -138,13 +149,19 @@ def run_playwright_command(args: argparse.Namespace) -> int:
             strategy=args.strategy,
             screenshot_path=args.screenshot,
             settle_seconds=args.settle,
+            browser_path=args.browser_path,
+            wpm=args.wpm,
         )
     except RuntimeError as exc:
         print(exc, file=sys.stderr)
         return 1
 
-    print(format_automation_result(result))
-    return 0
+    return print_result(result, args.json)
+
+
+def print_result(result, as_json=False) -> int:
+    print(json.dumps(asdict(result), default=str) if as_json else format_automation_result(result))
+    return int(result.stop_reason in {"stalled", "unsupported_page", "input_error"})
 
 
 def format_automation_result(result) -> str:
@@ -152,8 +169,12 @@ def format_automation_result(result) -> str:
         f"Engine: {result.engine}\n"
         f"Target: {result.url}\n"
         f"Strategy: {result.strategy}\n"
-        f"Typed words: {result.typed_words}\n"
+        f"Pace limit: {result.target_wpm or 'unlimited'} nominal WPM\n"
+        f"Confirmed words: {result.typed_words}\n"
+        f"Attempted words: {result.attempted_words}\n"
         f"Elapsed: {result.elapsed_seconds}s\n"
+        f"Stop reason: {result.stop_reason}\n"
+        f"Browser: {result.browser_version}\n"
         f"Screenshot: {result.screenshot_path}"
     )
 

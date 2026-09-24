@@ -1,0 +1,44 @@
+[
+  {
+    "engine": "playwright",
+    "url": "https://10fastfingers.com/typing-test/turkish",
+    "strategy": "turbo",
+    "typed_words": 352,
+    "elapsed_seconds": 59.782514,
+    "screenshot_path": "docs/assets/playwright-2026-09-24-388wpm.png",
+    "attempted_words": 352,
+    "stop_reason": "words_exhausted",
+    "browser_version": "152.0.7977.64",
+    "target_wpm": 400,
+    "site_wpm": 388,
+    "site_accuracy_percent": 100
+  },
+  {
+    "engine": "selenium",
+    "url": "https://10fastfingers.com/typing-test/turkish",
+    "strategy": "turbo",
+    "typed_words": 349,
+    "elapsed_seconds": 59.806722,
+    "screenshot_path": "docs/assets/selenium-2026-09-24-388wpm.png",
+    "attempted_words": 349,
+    "stop_reason": "words_exhausted",
+    "browser_version": "152.0.7977.64",
+    "target_wpm": 400,
+    "site_wpm": 388,
+    "site_accuracy_percent": 100
+  },
+  {
+    "engine": "playwright",
+    "url": "https://10fastfingers.com/typing-test/turkish",
+    "strategy": "turbo",
+    "typed_words": 356,
+    "elapsed_seconds": 6.294455,
+    "screenshot_path": null,
+    "attempted_words": 356,
+    "stop_reason": "words_exhausted",
+    "browser_version": "152.0.7977.64",
+    "target_wpm": 0,
+    "site_wpm": null,
+    "site_accuracy_percent": null
+  }
+]

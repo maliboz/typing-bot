@@ -1,0 +1,172 @@
+{
+  "python": "3.13.5",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "runs": [
+    {
+      "engine": "selenium",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "active",
+      "typed_words": 120,
+      "elapsed_seconds": 1.174903,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "selenium",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "turbo",
+      "typed_words": 120,
+      "elapsed_seconds": 0.282374,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "playwright",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "active",
+      "typed_words": 120,
+      "elapsed_seconds": 1.786768,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "playwright",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "turbo",
+      "typed_words": 120,
+      "elapsed_seconds": 0.321644,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "playwright",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "turbo",
+      "typed_words": 120,
+      "elapsed_seconds": 0.413316,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "playwright",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "active",
+      "typed_words": 120,
+      "elapsed_seconds": 1.440322,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "selenium",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "turbo",
+      "typed_words": 120,
+      "elapsed_seconds": 0.300813,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "selenium",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "active",
+      "typed_words": 120,
+      "elapsed_seconds": 1.438393,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "selenium",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "active",
+      "typed_words": 120,
+      "elapsed_seconds": 1.564139,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "selenium",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "turbo",
+      "typed_words": 120,
+      "elapsed_seconds": 0.308,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "playwright",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "active",
+      "typed_words": 120,
+      "elapsed_seconds": 1.604102,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    },
+    {
+      "engine": "playwright",
+      "url": "tests/fixtures/modern.html",
+      "strategy": "turbo",
+      "typed_words": 120,
+      "elapsed_seconds": 0.584534,
+      "screenshot_path": null,
+      "attempted_words": 120,
+      "stop_reason": "completed",
+      "browser_version": "152.0.7977.64",
+      "target_wpm": 0
+    }
+  ],
+  "summary": [
+    {
+      "engine": "selenium",
+      "strategy": "active",
+      "median_seconds": 1.438393
+    },
+    {
+      "engine": "selenium",
+      "strategy": "turbo",
+      "median_seconds": 0.300813
+    },
+    {
+      "engine": "playwright",
+      "strategy": "active",
+      "median_seconds": 1.604102
+    },
+    {
+      "engine": "playwright",
+      "strategy": "turbo",
+      "median_seconds": 0.413316
+    }
+  ]
+}

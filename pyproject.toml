@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "typing-bot"
-version = "0.1.0"
+version = "0.2.0"
 description = "Fast Selenium and Playwright automation examples for the 10FastFingers typing test."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -31,9 +31,9 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-selenium = ["selenium>=4.20"]
-playwright = ["playwright>=1.44"]
-all = ["selenium>=4.20", "playwright>=1.44"]
+selenium = ["selenium>=4.20,<5", "websocket-client>=1.8,<2"]
+playwright = ["playwright>=1.44,<2", "websocket-client>=1.8,<2"]
+all = ["selenium>=4.20,<5", "playwright>=1.44,<2", "websocket-client>=1.8,<2"]
 dev = []
 
 [project.scripts]

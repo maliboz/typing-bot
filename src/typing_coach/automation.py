@@ -1,15 +1,19 @@
-"""Browser automation runners used by the example scripts."""
-
+"""Selenium / Playwright launchers with a shared, acknowledged typing loop."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import math
 from pathlib import Path
+import socket
 import time
 from typing import Literal
 
+from .cdp import CdpConnection, key_events
+from .page_state import FOCUS, WAIT_STATE
 
 DEFAULT_SCREENSHOT = Path("final_result.png")
-DEFAULT_MAX_WORDS = 400
+DEFAULT_MAX_WORDS = 10000
 TEN_FAST_FINGERS_TR = "https://10fastfingers.com/typing-test/turkish"
 TypingStrategy = Literal["turbo", "active"]
 
@@ -19,14 +23,16 @@ class AutomationResult:
     engine: str
     url: str
     strategy: str
-    typed_words: int
+    typed_words: int  # Confirmed UI advances, not attempts or official WPM.
     elapsed_seconds: float
     screenshot_path: Path
+    attempted_words: int = 0
+    stop_reason: str = "max_words"
+    browser_version: str = ""
+    target_wpm: float = 0
 
 
 def resolve_target_url(target: str) -> str:
-    """Resolve a friendly target name into a URL."""
-
     if target in {"demo", "local"}:
         return (Path(__file__).resolve().parents[2] / "demo" / "typing_test.html").as_uri()
     if target in {"10fastfingers", "10fastfingers-tr", "turkish"}:
@@ -36,365 +42,222 @@ def resolve_target_url(target: str) -> str:
     return Path(target).expanduser().resolve().as_uri()
 
 
-def run_selenium(
-    target: str = "10fastfingers-tr",
-    duration: int = 60,
-    headless: bool = False,
-    delay: float = 0.02,
-    max_words: int = DEFAULT_MAX_WORDS,
-    strategy: TypingStrategy = "turbo",
-    screenshot_path: Path = DEFAULT_SCREENSHOT,
-    settle_seconds: float = 5.0,
-) -> AutomationResult:
-    """Run the typing automation with Selenium."""
+def _validate(duration, delay, max_words, strategy, settle_seconds, wpm=0):
+    for name, value in (("duration", duration), ("delay", delay), ("settle", settle_seconds), ("wpm", wpm)):
+        if not math.isfinite(value) or value < 0:
+            raise RuntimeError(f"{name} must be finite and non-negative.")
+    if duration == 0 or max_words < 1 or not isinstance(max_words, int):
+        raise RuntimeError("duration and max-words must be positive.")
+    if strategy not in {"turbo", "active"}:
+        raise RuntimeError("Strategy must be 'turbo' or 'active'.")
 
+
+def _wait_args(token=None, timeout=15000, initial=False):
+    return {"token": token, "timeout": max(1, timeout), "initial": initial}
+
+
+def _drive_loop(state, send_word, wait_state, *, duration, max_words, delay, wpm=0):
+    """Never send another word until the previous submission advances the UI."""
+    started = time.perf_counter()
+    deadline = started + duration
+    confirmed = attempted = 0
+    characters = 0
+    reason = "max_words"
+    while confirmed < max_words:
+        if wpm and characters:
+            due = min(deadline, started + characters * 60 / (wpm * 5))
+            time.sleep(max(0, due - time.perf_counter()))
+        if time.perf_counter() >= deadline:
+            reason = "duration"
+            break
+        if state.get("done"):
+            reason = "completed"
+            break
+        word = state.get("word", "")
+        if not state.get("ready") or not word or any(c.isspace() for c in word):
+            reason = "unsupported_page"
+            break
+        previous = state
+        send_word(word)
+        attempted += 1
+        characters += len(word) + 1
+        remaining = deadline - time.perf_counter()
+        # Check the deadline between words; at most one word is in flight.
+        state = wait_state(_wait_args(previous["token"], min(2000, max(1, remaining * 1000))))
+        if state.get("timedOut"):
+            reason = "duration" if time.perf_counter() >= deadline else "stalled"
+            break
+        if state.get("errors", 0) > previous.get("errors", 0):
+            confirmed += 1
+            reason = "input_error"
+            break
+        if state.get("exhausted"):
+            confirmed += 1
+            reason = "words_exhausted"
+            break
+        if state.get("done") and not state.get("ready"):
+            confirmed += 1
+            reason = "completed"
+            break
+        if state.get("token") == previous["token"]:
+            reason = "stalled"
+            break
+        confirmed += 1
+        if delay and confirmed < max_words:
+            time.sleep(min(delay, max(0, deadline - time.perf_counter())))
+    return confirmed, attempted, round(time.perf_counter() - started, 6), reason
+
+
+def _cdp_wait(connection, args):
+    return connection.evaluate(f"({WAIT_STATE})({json.dumps(args)})")
+
+
+def _screenshot_path(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def run_selenium(
+    target="10fastfingers-tr", duration=60, headless=False, delay=0.02,
+    max_words=DEFAULT_MAX_WORDS, strategy: TypingStrategy = "turbo",
+    screenshot_path=DEFAULT_SCREENSHOT, settle_seconds=5.0, browser_path=None, wpm=0,
+) -> AutomationResult:
+    _validate(duration, delay, max_words, strategy, settle_seconds, wpm)
     try:
         from selenium import webdriver
-        from selenium.common.exceptions import TimeoutException
         from selenium.common.exceptions import WebDriverException
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.common.by import By
         from selenium.webdriver.common.action_chains import ActionChains
-        from selenium.webdriver.common.keys import Keys
-        from selenium.webdriver.support import expected_conditions as EC
-        from selenium.webdriver.support.ui import WebDriverWait
     except ImportError as exc:
-        raise RuntimeError(
-            "Selenium is not installed. Run: python -m pip install '.[selenium]'"
-        ) from exc
-
-    url = resolve_target_url(target)
-    chrome_options = Options()
+        raise RuntimeError("Install Selenium: python -m pip install '.[selenium]'") from exc
+    options = webdriver.ChromeOptions()
     if headless:
-        chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--remote-debugging-pipe")
-    chrome_options.add_argument("--window-size=1280,900")
-
+        options.add_argument("--headless=new")
+    options.add_argument("--window-size=1280,900")
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-sandbox")
+    options.page_load_strategy = "eager"
+    options.add_argument("--remote-debugging-address=127.0.0.1")
+    if browser_path:
+        options.binary_location = str(Path(browser_path).resolve())
+    driver = connection = None
     try:
-        driver = webdriver.Chrome(options=chrome_options)
-    except WebDriverException as exc:
-        raise RuntimeError(
-            "Chrome could not be started by Selenium. Make sure Google Chrome is "
-            "installed, then try again. In sandboxed environments, run the same "
-            "command in your normal terminal."
-        ) from exc
-    started = time.monotonic()
-    typed_words = 0
-
-    try:
+        driver = webdriver.Chrome(options=options)
+        driver.execute_cdp_cmd("Emulation.setDeviceMetricsOverride", {
+            "width": 1280, "height": 900, "deviceScaleFactor": 1, "mobile": False,
+        })
+        driver.set_page_load_timeout(30)
+        driver.set_script_timeout(20)
+        url = resolve_target_url(target)
         driver.get(url)
-        wait = WebDriverWait(driver, 15)
-
-        if strategy not in {"turbo", "active"}:
-            raise RuntimeError("Strategy must be 'turbo' or 'active'.")
-
-        if _selenium_has_legacy_input(driver, wait):
-            typing_input = driver.find_element(By.ID, "inputfield")
-            typing_input.click()
-            mode = "legacy"
-        else:
-            word_box = _selenium_wait_for_modern_word_box(driver, wait)
-            word_box.click()
-            mode = "modern"
-
-        started = time.monotonic()
-        if strategy == "turbo":
-            if mode == "legacy":
-                words = _selenium_get_legacy_words(driver, max_words)
-                if words:
-                    typing_input = driver.find_element(By.ID, "inputfield")
-                    typing_input.click()
-                    typing_input.send_keys(_join_words(words))
-                    typed_words = len(words)
-            else:
-                while time.monotonic() - started < duration and typed_words < max_words:
-                    word = _selenium_get_modern_active_word(driver)
-                    if not word:
-                        break
-                    ActionChains(driver).send_keys(word).send_keys(Keys.SPACE).perform()
-                    typed_words += 1
-        else:
-            while time.monotonic() - started < duration and typed_words < max_words:
-                if mode == "legacy":
-                    try:
-                        word = wait.until(
-                            EC.presence_of_element_located(
-                                (By.CSS_SELECTOR, f"span[wordnr='{typed_words}']")
-                            )
-                        ).text.strip()
-                    except TimeoutException:
-                        break
-                else:
-                    word = _selenium_get_modern_active_word(driver)
-
-                if not word:
-                    break
-
-                if mode == "legacy":
-                    typing_input = driver.find_element(By.ID, "inputfield")
-                    typing_input.click()
-                    typing_input.send_keys(word)
-                    typing_input.send_keys(Keys.SPACE)
-                else:
-                    ActionChains(driver).send_keys(word).send_keys(Keys.SPACE).perform()
-
-                typed_words += 1
-                time.sleep(delay)
-
-        elapsed_seconds = round(time.monotonic() - started, 2)
-        time.sleep(settle_seconds)
-        screenshot_path = Path(screenshot_path)
-        screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-        if not driver.save_screenshot(str(screenshot_path)) or not screenshot_path.exists():
-            raise RuntimeError(f"Screenshot could not be saved to: {screenshot_path}")
-        return AutomationResult(
-            engine="selenium",
-            url=url,
-            strategy=strategy,
-            typed_words=typed_words,
-            elapsed_seconds=elapsed_seconds,
-            screenshot_path=screenshot_path,
+        wait_state = lambda args: driver.execute_async_script(
+            f"const done = arguments[1]; ({WAIT_STATE})(arguments[0]).then(done);", args
         )
+        state = wait_state(_wait_args(initial=True))
+        if not state.get("ready"):
+            raise RuntimeError("No supported active word appeared within 15s; the site layout may have changed.")
+        driver.execute_script(f"({FOCUS})()")
+        if strategy == "turbo":
+            info = driver.execute_cdp_cmd("Target.getTargetInfo", {})["targetInfo"]
+            connection = CdpConnection(driver.capabilities["goog:chromeOptions"]["debuggerAddress"], info["targetId"])
+            send_word = connection.type_word
+            wait_state = lambda args: _cdp_wait(connection, args)
+        else:
+            send_word = lambda word: ActionChains(driver).send_keys(word + " ").perform()
+        confirmed, attempted, elapsed, reason = _drive_loop(
+            state, send_word, wait_state, duration=duration, max_words=max_words,
+            delay=delay if strategy == "active" else 0,
+            wpm=wpm,
+        )
+        time.sleep(settle_seconds)
+        path = _screenshot_path(screenshot_path)
+        if not driver.save_screenshot(str(path)):
+            raise RuntimeError(f"Screenshot could not be saved: {path}")
+        return AutomationResult("selenium", url, strategy, confirmed, elapsed, path,
+                                attempted, reason, driver.capabilities["browserVersion"], wpm)
+    except WebDriverException as exc:
+        raise RuntimeError(f"Selenium could not complete the run: {exc}") from exc
     finally:
-        driver.quit()
+        try:
+            if connection:
+                connection.close()
+        finally:
+            if driver:
+                driver.quit()
+
+
+def _playwright_type(page, session, word, mode):
+    # Unicode needs explicit native key events on keydown-driven pages.
+    chunk = ""
+    for char in word + " ":
+        if mode == "legacy" or char.isascii():
+            chunk += char
+        else:
+            if chunk:
+                page.keyboard.type(chunk)
+                chunk = ""
+            for event in key_events(char):
+                session.send("Input.dispatchKeyEvent", event)
+    if chunk:
+        page.keyboard.type(chunk)
 
 
 def run_playwright(
-    target: str = "10fastfingers-tr",
-    duration: int = 60,
-    headless: bool = False,
-    delay: float = 0.02,
-    max_words: int = DEFAULT_MAX_WORDS,
-    strategy: TypingStrategy = "turbo",
-    screenshot_path: Path = DEFAULT_SCREENSHOT,
-    settle_seconds: float = 5.0,
+    target="10fastfingers-tr", duration=60, headless=False, delay=0.02,
+    max_words=DEFAULT_MAX_WORDS, strategy: TypingStrategy = "turbo",
+    screenshot_path=DEFAULT_SCREENSHOT, settle_seconds=5.0, browser_path=None, wpm=0,
 ) -> AutomationResult:
-    """Run the typing automation with Playwright."""
-
+    _validate(duration, delay, max_words, strategy, settle_seconds, wpm)
     try:
-        from playwright.sync_api import TimeoutError as PlaywrightTimeoutError
-        from playwright.sync_api import sync_playwright
+        from playwright.sync_api import Error, sync_playwright
     except ImportError as exc:
-        raise RuntimeError(
-            "Playwright is not installed. Run: python -m pip install '.[playwright]' && playwright install chromium"
-        ) from exc
-
-    url = resolve_target_url(target)
-    started = time.monotonic()
-    typed_words = 0
-
+        raise RuntimeError("Install Playwright: python -m pip install '.[playwright]' then python -m playwright install chromium") from exc
+    # Select a loopback port. A collision fails target-id verification rather
+    # than attaching to a different browser or an unrelated user tab.
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    browser = connection = None
     with sync_playwright() as playwright:
         try:
-            browser = playwright.chromium.launch(headless=headless)
-        except Exception as exc:
-            raise RuntimeError(
-                "Playwright could not start Chromium. Run "
-                "'playwright install chromium' and try from your normal terminal."
-            ) from exc
-        page = browser.new_page(viewport={"width": 1280, "height": 900})
-
-        try:
-            page.goto(url, wait_until="domcontentloaded")
-
-            if strategy not in {"turbo", "active"}:
-                raise RuntimeError("Strategy must be 'turbo' or 'active'.")
-
-            if page.locator("#inputfield").count() > 0:
-                page.click("#inputfield")
-                mode = "legacy"
-            else:
-                _playwright_wait_for_modern_word_box(page)
-                page.click("div[class*='word-box']")
-                mode = "modern"
-
-            started = time.monotonic()
+            launch = {"headless": headless}
             if strategy == "turbo":
-                if mode == "legacy":
-                    words = _playwright_get_legacy_words(page, max_words)
-                    if words:
-                        page.click("#inputfield")
-                        page.keyboard.type(_join_words(words), delay=0)
-                        typed_words = len(words)
-                else:
-                    while time.monotonic() - started < duration and typed_words < max_words:
-                        word = _playwright_get_modern_active_word(page)
-                        if not word:
-                            break
-                        page.keyboard.type(word, delay=0)
-                        page.keyboard.press(" ")
-                        typed_words += 1
+                launch["args"] = [f"--remote-debugging-port={port}", "--remote-debugging-address=127.0.0.1"]
+            if browser_path:
+                launch["executable_path"] = str(Path(browser_path).resolve())
+            browser = playwright.chromium.launch(**launch)
+            page = browser.new_page(viewport={"width": 1280, "height": 900})
+            url = resolve_target_url(target)
+            page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            state = page.evaluate(WAIT_STATE, _wait_args(initial=True))
+            if not state.get("ready"):
+                raise RuntimeError("No supported active word appeared within 15s; the site layout may have changed.")
+            page.evaluate(FOCUS)
+            session = page.context.new_cdp_session(page)
+            if strategy == "turbo":
+                info = session.send("Target.getTargetInfo")["targetInfo"]
+                connection = CdpConnection(f"127.0.0.1:{port}", info["targetId"])
+                send_word = connection.type_word
+                wait_state = lambda args: _cdp_wait(connection, args)
             else:
-                while time.monotonic() - started < duration and typed_words < max_words:
-                    if mode == "legacy":
-                        selector = f"span[wordnr='{typed_words}']"
-                        try:
-                            word = page.locator(selector).inner_text(timeout=15000).strip()
-                        except PlaywrightTimeoutError:
-                            break
-                    else:
-                        word = _playwright_get_modern_active_word(page)
-
-                    if not word:
-                        break
-
-                    if mode == "legacy":
-                        page.click("#inputfield")
-                    else:
-                        page.click("div[class*='word-box']")
-                    page.keyboard.type(word, delay=0)
-                    page.keyboard.press(" ")
-                    typed_words += 1
-                    time.sleep(delay)
-
-            elapsed_seconds = round(time.monotonic() - started, 2)
-            time.sleep(settle_seconds)
-            screenshot_path = Path(screenshot_path)
-            screenshot_path.parent.mkdir(parents=True, exist_ok=True)
-            page.screenshot(path=str(screenshot_path), full_page=True)
-            if not screenshot_path.exists():
-                raise RuntimeError(f"Screenshot could not be saved to: {screenshot_path}")
-            return AutomationResult(
-                engine="playwright",
-                url=url,
-                strategy=strategy,
-                typed_words=typed_words,
-                elapsed_seconds=elapsed_seconds,
-                screenshot_path=screenshot_path,
+                send_word = lambda word: _playwright_type(page, session, word, state["mode"])
+                wait_state = lambda args: page.evaluate(WAIT_STATE, args)
+            confirmed, attempted, elapsed, reason = _drive_loop(
+                state, send_word, wait_state, duration=duration, max_words=max_words,
+                delay=delay if strategy == "active" else 0,
+                wpm=wpm,
             )
+            page.wait_for_timeout(settle_seconds * 1000)
+            path = _screenshot_path(screenshot_path)
+            page.screenshot(path=str(path))
+            return AutomationResult("playwright", url, strategy, confirmed, elapsed, path,
+                                    attempted, reason, browser.version, wpm)
+        except Error as exc:
+            raise RuntimeError(f"Playwright could not complete the run: {exc}") from exc
         finally:
-            browser.close()
-
-
-def _selenium_has_legacy_input(driver, wait) -> bool:
-    del wait
-    return bool(driver.find_elements("id", "inputfield"))
-
-
-def _selenium_wait_for_modern_word_box(driver, wait):
-    return wait.until(
-        lambda current: next(
-            (
-                element
-                for element in current.find_elements("css selector", "div[class*='word-box']")
-                if element.text.strip()
-            ),
-            False,
-        )
-    )
-
-
-def _selenium_get_modern_active_word(driver) -> str:
-    word = driver.execute_script(
-        """
-        const active = [...document.querySelectorAll('.word-box-active-word')];
-        if (active.length) {
-          return active.map((node) => node.innerText || node.textContent || '').join('').trim();
-        }
-
-        const box = [...document.querySelectorAll('div[class*="word-box"]')]
-          .find((node) => (node.innerText || '').trim().length);
-        return box ? (box.innerText || '').trim().split(/\\s+/)[0] : '';
-        """
-    )
-    return str(word or "").strip()
-
-
-def _selenium_get_legacy_words(driver, max_words: int) -> list[str]:
-    words = driver.execute_script(
-        """
-        const nodes = [...document.querySelectorAll('span[wordnr]')];
-        return nodes
-          .sort((left, right) => Number(left.getAttribute('wordnr')) - Number(right.getAttribute('wordnr')))
-          .map((node) => (node.innerText || node.textContent || '').trim())
-          .filter(Boolean)
-          .slice(0, arguments[0]);
-        """,
-        max_words,
-    )
-    return _clean_words(words, max_words)
-
-
-def _selenium_get_modern_words(driver, max_words: int) -> list[str]:
-    words = driver.execute_script(
-        """
-        const box = [...document.querySelectorAll('div[class*="word-box"]')]
-          .find((node) => (node.innerText || '').trim().length);
-        if (!box) return [];
-        return (box.innerText || box.textContent || '').trim().split(/\\s+/).slice(0, arguments[0]);
-        """,
-        max_words,
-    )
-    return _clean_words(words, max_words)
-
-
-def _playwright_wait_for_modern_word_box(page) -> None:
-    page.wait_for_function(
-        """
-        () => [...document.querySelectorAll('div[class*="word-box"]')]
-          .some((node) => (node.innerText || '').trim().length)
-        """,
-        timeout=15000,
-    )
-
-
-def _playwright_get_modern_active_word(page) -> str:
-    word = page.evaluate(
-        """
-        () => {
-          const active = [...document.querySelectorAll('.word-box-active-word')];
-          if (active.length) {
-            return active.map((node) => node.innerText || node.textContent || '').join('').trim();
-          }
-
-          const box = [...document.querySelectorAll('div[class*="word-box"]')]
-            .find((node) => (node.innerText || '').trim().length);
-          return box ? (box.innerText || '').trim().split(/\\s+/)[0] : '';
-        }
-        """
-    )
-    return str(word or "").strip()
-
-
-def _playwright_get_legacy_words(page, max_words: int) -> list[str]:
-    words = page.evaluate(
-        """
-        (maxWords) => {
-          const nodes = [...document.querySelectorAll('span[wordnr]')];
-          return nodes
-            .sort((left, right) => Number(left.getAttribute('wordnr')) - Number(right.getAttribute('wordnr')))
-            .map((node) => (node.innerText || node.textContent || '').trim())
-            .filter(Boolean)
-            .slice(0, maxWords);
-        }
-        """,
-        max_words,
-    )
-    return _clean_words(words, max_words)
-
-
-def _playwright_get_modern_words(page, max_words: int) -> list[str]:
-    words = page.evaluate(
-        """
-        (maxWords) => {
-          const box = [...document.querySelectorAll('div[class*="word-box"]')]
-            .find((node) => (node.innerText || '').trim().length);
-          if (!box) return [];
-          return (box.innerText || box.textContent || '').trim().split(/\\s+/).slice(0, maxWords);
-        }
-        """,
-        max_words,
-    )
-    return _clean_words(words, max_words)
-
-
-def _clean_words(words, max_words: int) -> list[str]:
-    if not isinstance(words, list):
-        return []
-    return [str(word).strip() for word in words if str(word).strip()][:max_words]
-
-
-def _join_words(words: list[str]) -> str:
-    return " ".join(words).strip() + " "
+            try:
+                if connection:
+                    connection.close()
+            finally:
+                if browser:
+                    browser.close()
